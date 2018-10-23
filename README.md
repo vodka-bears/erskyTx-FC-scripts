@@ -1,5 +1,5 @@
 # Scripts for ersky9x and Betaflight
-Thanks @MikeBland for this <s>crap</s> awesome scripting language. JK, we all know 9XR Pro can't run Lua.
+Thanks @MikeBland for this <s>crap</s> awesome scripting language. JK, we all know 9XR Pro can't run Lua. <br>
 Now supports FPort.
 ## What is already done
 * PID control (Thanks @midelic, yout code formatting sucks. Basically this is his (or her?) file with readable indentation and stuff. Just look https://github.com/midelic/Ersky9x-Tx-bas-scripts)
