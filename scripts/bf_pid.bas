@@ -7,17 +7,19 @@ rem dear midelic
 rem your code formatting sucks
 rem really
 
-rem A script to control a vtx with ersky9x with betaflight (if it works with iNav I say wow)
+rem A script to change PIDs & rates
 rem put in /scripts
-rem works only with smartport
+rem works with SmartPort anf FPort
 
 if init = 0
 	init = 1
-
+	
+	SPORT_REMOTE_SENSOR_ID = 0x1B
+	FPORT_REMOTE_SENSOR_ID = 0x00
+	
 	SPORT_MSP_VERSION = 32
 	SPORT_MSP_STARTFLAG = 16
 	LOCAL_SENSOR_ID = 0x0D
-	REMOTE_SENSOR_ID = 0x1B
 	REQUEST_FRAME_ID = 0x30
 	REPLY_FRAME_ID  = 0x32
 	MSP_RC_TUNING     = 111
@@ -278,7 +280,7 @@ mspPollReply:
 	while 1
 		result = sportTelemetryReceive( physicalId, primId, dataId , value)
 		if result > 0
-			if (physicalId = 0x1B) & (primId = 0x32)
+			if ((physicalId = SPORT_REMOTE_SENSOR_ID) | (physicalId = FPORT_REMOTE_SENSOR_ID)) & (primId = 0x32)
 				j=1
 				while j<=6
 					payload[j]=0

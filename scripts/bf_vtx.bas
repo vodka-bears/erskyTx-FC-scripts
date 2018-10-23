@@ -9,7 +9,7 @@ rem really
 
 rem A script to control a vtx with ersky9x with betaflight (if it works with iNav I say wow)
 rem put in /scripts
-rem works only with smartport
+rem works with SmartPort and FPort
 
 if init = 0
 	init = 1
