@@ -3,16 +3,15 @@ rem https://github.com/vodka-bears/ersky9x-betaflight-vtx-script
 rem derivative of this
 rem https://github.com/midelic/Ersky9x-Tx-bas-scripts/blob/master/src/BF_basic.bas
 
-rem dear midelic
-rem your code formatting sucks
-rem really
-
 rem A script to control a vtx with ersky9x with betaflight (if it works with iNav I say wow)
 rem put in /scripts
 rem works with SmartPort and FPort
 
 if init = 0
 	init = 1
+	
+	rem if you want a debug screen set this to 1
+	DEBUG_MODE = 1
 	
 	SPORT_REMOTE_SENSOR_ID = 0x1B
 	FPORT_REMOTE_SENSOR_ID = 0x00
@@ -22,8 +21,15 @@ if init = 0
 	LOCAL_SENSOR_ID = 0x0D
 	REQUEST_FRAME_ID = 0x30
 	REPLY_FRAME_ID  = 0x32
+	MSP_RC_TUNING     = 111
+	MSP_SET_PID       = 202
+	MSP_PID           = 112
+	MSP_SET_RC_TUNING = 204
+	MSP_PID_ADVANCED     = 94
+	MSP_SET_PID_ADVANCED = 95
 	MSP_VTX_CONFIG = 88
 	MSP_SET_VTX_CONFIG = 89
+	MSP_REBOOT = 68
 	MSP_EEPROM_WRITE = 250
 	REQ_TIMEOUT = 80
 
@@ -33,6 +39,7 @@ if init = 0
 	MENU_DISP		= 5
 	TEST			= 6
 	
+	currentPage = 1
 	currentLine = 1
 	saveTS = 0
 	saveRetries = 0	
@@ -65,11 +72,11 @@ if init = 0
 	array byte payload[7]
 	array byte payloadTx[7]
 	array byte payloadReq[32]
-	array byte values[32]
+	array byte values_pid[32]
+	array byte values_rates[32]
 	array byte values_vtx_recieved[32]
 	array      values_vtx[32]
 	array byte values_vtx_send[32]
-	array byte value[32]
 	
 	array freqA[9]
 	array freqB[9]
@@ -131,8 +138,6 @@ if init = 0
 	now = 0
 	seq = 0
 	ret = 0
-	
-	lastRunTS = 0
 end
 
 goto run
@@ -147,15 +152,15 @@ mspSendRequest:
 	mspTxBuf[2] = cmnd & 0xFF
 
 	if p_size > 1
-		j=1
+		j = 1
 		while  j <= p_size
 			mspTxBuf[j+2] = payloadReq[j]
-			j=j+1
+			j += 1
 		end
 	end
 
 	mspLastReq = cmnd
-	mspRequestsSent = mspRequestsSent + 1
+	mspRequestsSent += 1
 	t_size = p_size + 2
 	gosub mspProcessTxQ
 return
@@ -164,7 +169,7 @@ mspProcessTxQ:
 	if t_size = 0
 		return
 	end
-	rem ---need here code to check if the previous frame is sent before send the next
+	rem ---check if the previous frame is sent before send the next
 	rest = sportTelemetrySend(0xFF)
 	if rest = 0 
 		return 
@@ -173,19 +178,19 @@ mspProcessTxQ:
 	j = 1
 	while j <= 6
 		payloadTx[j] = 0
-		j=j+1
+		j += 1
 	end
 
-	mspRequestsSent = mspRequestsSent + 1
+	mspRequestsSent += 1
 
-	payloadTx[1] = sportMspSeq+ SPORT_MSP_VERSION
+	payloadTx[1] = sportMspSeq + SPORT_MSP_VERSION
 	sportMspSeq += 1
 	sportMspSeq = sportMspSeq & 0x0F
 	
 	
 	if mspTxIdx = 1 
 		rem --- start flag only for id=1
-		payloadTx[1] = payloadTx[1] + SPORT_MSP_STARTFLAG
+		payloadTx[1] +=SPORT_MSP_STARTFLAG
 	end
 
 	i = 2
@@ -194,13 +199,11 @@ mspProcessTxQ:
 		payloadTx[i] = mspTxBuf[mspTxIdx]
 		mspTxIdx = mspTxIdx + 1
 		mspTxCRC ^= payloadTx[i]
-		i = i + 1
-			if mspTxIdx > t_size
-				goto break1
-			end
-		end 
-
-	break1:
+		i += 1
+		if mspTxIdx > t_size
+			break
+		end
+	end
 
 	if i <= 6 
 		payloadTx[i] = mspTxCRC  
@@ -208,7 +211,7 @@ mspProcessTxQ:
 		rem --- zero fill
 		while i <= 6 
 			payloadTx[i] = 0
-			i = i + 1
+			i += 1
 		end 	
 		gosub mspSendSport
 
@@ -216,7 +219,7 @@ mspProcessTxQ:
 		j = 1
 		while j < 32
 			mspTxBuf[j] = 0
-			j = j + 1
+			j += 1
 		end
 		t_size = 0
 		mspTxIdx = 1
@@ -234,7 +237,7 @@ mspSendSport:
 	value = payloadTx[3] + payloadTx[4] * 256 + payloadTx[5] * 65536 + 	payloadTx[6] * 16777216
 	reti = sportTelemetrySend(LOCAL_SENSOR_ID, REQUEST_FRAME_ID, dataId, value)
 	if reti > 0 	
-		mspTxPk = mspTxPk + 1
+		mspTxPk += 1
 	end
 return
 
@@ -274,11 +277,11 @@ mspReceivedReply:
 		j = 1
 		while j	< 32
 			mspRxBuf[j]=0
-			j = j+1
+			j += 1
 		end
 	
 		sportMspRemoteSeqm = sportMspRemoteseq + 1
-		sportMspRemoteSeqm = sportMspRemoteSeqm & 0x0F    
+		sportMspRemoteSeqm &= 0x0F    
 		mspRxIdx = 1
 		mspRxSize = payload[idx]
 		mspRxCRC = mspRxSize ^ mspLastReq
@@ -331,7 +334,7 @@ mspPollReply:
 				j=1
 				while j<=6
 					payload[j]=0
-					j = j+1
+					j += 1
 				end
 				payload[1] = dataId & 0xFF
 				dataId /= 256
@@ -365,6 +368,7 @@ processMspReply:
 		return
 	end
 
+	page = currentPage
 	gosub SetupPages
 
 	rem ---ignore write for now
@@ -391,10 +395,18 @@ processMspReply:
 		if mspRxIdx > 1
 			j = 1
 			while j <= mspRxIdx
-				values_vtx_recieved[j] = mspRxBuf[j]
+				if page = 1
+					values_pid[j] = mspRxBuf[j]
+				elseif page = 2
+					values_rates[j] = mspRxBuf[j]
+				elseif page = 3
+					values_vtx_recieved[j] = mspRxBuf[j]
+				end
 				j += 1
 			end
-			gosub convertRecievedVtxValues
+			if page = 3
+				gosub convertRecievedVtxValues
+			end
 		end
 		ret = 0
 	end
@@ -413,6 +425,8 @@ convertRecievedVtxValues:
 	values_vtx[4] = values_vtx_recieved[5]
 	rem //Freq
 	values_vtx[6] = values_vtx_recieved[6] + values_vtx_recieved[7]*256
+	rem //Ready
+	values_vtx[7] = values_vtx_recieved[8]
 return
 
 convertVtxValuesSend:
@@ -446,7 +460,13 @@ return
 empty_buffer:
 	j = 1
 	while j <= packet_size
-		values_vtx_recieved[j] = 0
+		if page = 1
+			values_pid[j] = 0
+		elseif page = 2
+			values_rates[j] = 0
+		elseif page = 3
+			values_vtx_recieved[j] = 0
+		end
 		j += 1
  	end
 return
@@ -476,7 +496,7 @@ requestPage:
 return
 
 incLine:
-	currentLine = currentLine + 1
+	currentLine += 1
 	if currentLine > MaxLines 
 		currentLine = 1
 	elseif currentLine < 1 
@@ -485,7 +505,7 @@ incLine:
 return
 
 decLine:
-	currentLine = currentLine - 1
+	currentLine -= 1
 	if currentLine > MaxLines 
 		currentLine = 1
 	elseif currentLine < 1 
@@ -493,50 +513,97 @@ decLine:
 	end
 return
 
+incPage:
+	currentPage += 1
+	if currentPage > 3 
+		currentPage = 1
+	elseif currentPage < 1 
+		currentPage = 3
+	end
+	currentLine = 1
+return
+
 incValue:
+	page = currentPage
 	z = currentLine
-	if z = 5
+	if page = 1
+		val = values_pid[z]
+	elseif page = 2 
+		val = values_rates[z]
+	elseif page = 3
+		if (z = 5) | (z = 7)
+			return
+		end
+		if z = 6
+			if values_vtx[5] # 1
+				return
+			else
+				values_vtx[1] = 0
+				values_vtx[2] = 0
+			end
+		end
+		values_vtx[z] += 1
+		val = values_vtx[z]
+		gosub clipValueVtx
+		values_vtx[z] = val
+		if z < 3
+			gosub setFreqFromBandChan
+		end
 		return
 	end
-	if z = 6
-		if values_vtx[5] # 1
-			return
-		else
-			values_vtx[1] = 0
-			values_vtx[2] = 0
-		end
-	end
-	values_vtx[z] += 1
-	val = values_vtx[z]
-	gosub clipValueVtx
-	values_vtx[z] = val
-	if z < 3
-		gosub setFreqFromBandChan
+	val += 1
+	gosub clipValue
+	if page = 1
+		values_pid[z] = val
+	elseif page = 2
+		values_rates[z] = val
 	end
 return
 
 decValue:
+	page = currentPage
 	z = currentLine
-	if z = 5
+	if page = 1
+		val = values_pid[z]
+	elseif page = 2 
+		val = values_rates[z]
+	elseif page = 3
+		if (z = 5) | (z = 7)
+			return
+		end
+		if z = 6
+			if values_vtx[5] # 1
+				return
+			else
+				values_vtx[1] = 0
+				values_vtx[2] = 0
+			end
+		end
+		values_vtx[z] -= 1
+		val = values_vtx[z]
+		gosub clipValueVtx
+		values_vtx[z] = val
+		if z < 3
+			gosub setFreqFromBandChan
+		end
 		return
 	end
-	if z = 6
-		if values_vtx[5] # 1
-			return
-		else
-			values_vtx[1] = 0
-			values_vtx[2] = 0
-		end
-	end
-	values_vtx[z] -= 1
-	val = values_vtx[z]
-	gosub clipValueVtx
-	values_vtx[z] = val
-	if z < 3
-		gosub setFreqFromBandChan
+	val -= 1
+	gosub clipValue
+	if page = 1
+		values_pid[z] = val
+	elseif page = 2
+		values_rates[z] = val
 	end
 return
 
+clipValue:
+	if val < 0 
+		val = 0
+	elseif val > 255 
+		val = 255
+	end
+return
 
 clipValueVtx:
 	if z = 1
@@ -591,23 +658,206 @@ clipValueVtx:
 return
 
 SetupPages:
-	rem --- WTF is size?
-	packet_size = 9
-	MaxLines = 6
-	read = MSP_VTX_CONFIG
-	write = MSP_SET_VTX_CONFIG
+	if page = 1
+		rem --- 0x1E size
+		packet_size = 30
+		MaxLines = 8
+		read = MSP_PID
+		write = MSP_SET_PID
+	elseif page = 2
+		rem ---0x0C size
+		packet_size = 12
+		MaxLines = 7
+		read = MSP_RC_TUNING
+		write = MSP_SET_RC_TUNING
+	elseif page = 3
+		rem --- WTF is size?
+		packet_size = 9
+		MaxLines = 7
+		read = MSP_VTX_CONFIG
+		write = MSP_SET_VTX_CONFIG
+	end
+return
+
+
+selectone:
+	text_options = 0
+	if j = currentLine
+		text_options = INVERS
+		if gState = EDITING 
+			text_options = text_options + BLINK
+		end
+	end
+return
+
+check_values:
+	j = 1
+	c = 1
+	v_flag = 0
+	while j <= packet_size
+		if page = 1
+			if values_pid[j] = 0
+				c += 1
+			end
+		elseif page = 2
+			if values_rates[j] = 0
+				c += 1
+			end
+		elseif page = 3
+			if values_vtx[j] = 0
+				c += 1
+			end
+		end
+		j += 1
+	end
+	rem --if all values are zero
+	if c  >=  packet_size
+		v_flag = 0
+	else
+		v_flag = 1
+	end
+return
+
+saveSettings:
+	rem --write commands
+
+	gosub check_values	
+	if page = 3
+		gosub convertVtxValuesSend
+	end
+	if v_flag
+		cmnd = write
+		p_size = packet_size
+		j = 1
+		while j <= packet_size
+			if page = 1
+				payloadReq[j] = values_pid[j]
+			elseif page = 2
+				payloadReq[j] = values_rates[j]
+			elseif page = 3
+				payloadReq[j] = values_vtx_send[j]
+			end	  
+			j = j+1
+		end
+		gosub mspSendRequest
+		saveTS = gettime()
+		if gState = PAGE_SAVING 
+			saveRetries = saveRetries + 1
+		else
+			gState = PAGE_SAVING
+		end
+	end
+return
+
+invalidatePages:
+	j = 1
+	while j < 32
+		values_pid[j] = 0
+		values_rates[j] = 0
+		values_vtx[j] = 0
+		j += 1
+	end
+	gState = PAGE_DISPLAY
+	saveTS = 0
+return
+
+rebootFC:
+	cmnd = MSP_REBOOT
+	p_size = 0
+	gosub payload_zero
+	gosub mspSendRequest
+return
+
+drawTestScreen:
+	rem ---here you can add any variable that you want to be displayed on the screen 
+	rem ---for debugging purposes
+	drawtext( 0, 0, "Nothing here", INVERS+BLINK)
+	
 return
 
 drawScreen:
-	rem // if 1 because I'm too lazy to remove tabs form each line
-	if 1
-		drawtext( 0, 0, "VTX Settings", INVERS )
-		rem drawtext( 111, 0, "3/5", 0 )
-		if (values_vtx[5] = 0) | (values_vtx[5] = 0xFF)
-			drawtext(25, 31, "USE A BUTTON", 0)
-			return
-		end
-		
+	if page = 1
+		drawtext( 0, 0, "PIDs", INVERS )
+		drawtext( 111, 0, "1/3", 0 )
+
+		drawtext( 4, 25, "Roll", 0 )
+		drawtext( 4, 36, "Pitch", 0 )
+		drawtext( 4, 47, "Yaw", 0 )	 
+ 
+		drawtext( 50, 14, "P", 0 )
+		drawtext( 78, 14, "I", 0 )
+		drawtext( 106, 14, "D", 0 )
+
+		j = 1
+		gosub selectone
+		drawnumber( 55, 25, values_pid[j], text_options )
+		j += 1
+		gosub selectone
+		drawnumber( 83, 25, values_pid[j], text_options)
+		j += 1
+		gosub selectone
+		drawnumber( 111, 25, values_pid[j], text_options )
+		j += 1
+		gosub selectone
+		drawnumber( 55, 36, values_pid[j], text_options )
+		j += 1
+		gosub selectone
+		drawnumber( 83, 36, values_pid[j], text_options )
+		j += 1
+		gosub selectone
+		drawnumber( 111, 36, values_pid[j], text_options )
+		j += 1
+		gosub selectone
+		drawnumber( 55, 47, values_pid[j], text_options )
+		j += 1
+		gosub selectone
+		drawnumber( 83, 47, values_pid[j], text_options )
+
+		rem j += 1
+		rem gosub selectone
+		rem drawnumber( 111, 47, values_pid[j],text_options )
+
+	elseif page = 2 
+		drawtext( 0, 0, "Rates", INVERS )
+		drawtext( 111, 0, "2/3", 0 )
+
+		drawtext( 4, 25, "Roll", 0 )
+		drawtext( 4, 36, "Pitch", 0 )
+		drawtext( 4, 47, "Yaw", 0 )
+
+		drawtext( 39, 9, "RC", 0 )
+		drawtext( 39, 16, "Rate", 0 )
+
+		drawtext( 69, 9, "Super", 0 )
+		drawtext( 69, 16, "Rate", 0 )
+
+		drawtext( 97, 9, "RC", 0 )
+		drawtext( 97, 16, "Expo", 0 )
+
+		j = 1
+		gosub selectone
+		drawnumber( 55, 30, values_rates[j], text_options)
+		j += 1
+		gosub selectone
+		drawnumber( 111, 30, values_rates[j], text_options)
+		j += 1
+		gosub selectone
+		drawnumber( 83, 25, values_rates[j], text_options )
+		j += 1
+		gosub selectone
+		drawnumber( 83, 36, values_rates[j], text_options )
+		j += 1
+		gosub selectone
+		drawnumber( 83, 47,values_rates[j], text_options )
+		j += 1
+		gosub selectone
+		drawnumber( 55, 47, values_rates[j+6], text_options)
+		j += 1
+		gosub selectone
+		drawnumber( 111, 47, values_rates[j+6], text_options)
+	elseif page = 3
+		drawtext( 0, 0, "VTX", INVERS )
+		drawtext( 111, 0, "3/3", 0 )		
 		drawtext(4, 14, "Band:", 0)
 		drawtext(4, 24, "Ch:", 0)
 		drawtext(4, 34, "Pw:", 0)
@@ -623,6 +873,7 @@ drawScreen:
 		else
 			drawtext(64, 24, "Freq.", 0)
 		end
+		drawtext(64, 34, "Rdy.", 0)
 		
 		j = 1
 		gosub selectone
@@ -665,7 +916,9 @@ drawScreen:
 		elseif values_vtx[5] = 2
 				drawtext(40, 34, "WTF", text_options)
 		elseif values_vtx[5] = 3
-			if values_vtx[j] = 1
+			if values_vtx[j] = 0
+				drawtext(40, 34, "OFF", text_options)
+			elseif values_vtx[j] = 1
 				drawtext(40, 34, "25", text_options)
 			elseif values_vtx[j] = 2
 				drawtext(40, 34, "200", text_options)
@@ -675,6 +928,7 @@ drawScreen:
 				drawtext(40, 34, "500", text_options)
 			elseif values_vtx[j] = 4
 				drawtext(40, 34, "800", text_options)
+			end
 		elseif values_vtx[5] = 4
 			if values_vtx[j] = 0
 				drawtext(40, 34, "OFF", text_options)
@@ -716,141 +970,20 @@ drawScreen:
 		j = 6
 		gosub selectone
 		drawnumber(100, 24, values_vtx[j], text_options + LEFT)
-	end
-return
-
-selectone:
-	text_options = 0
-	if j = currentLine
-		text_options = INVERS
-		if gState = EDITING 
-			text_options = text_options + BLINK
-		end
-	end
-return
-
-
-drawMenu:
-	x = 12
-	y = 12
-	w = 105
-	menuList_size = 2
-	h = menuList_size * 8 + 6
-
-	drawrectangle(x, y, w-1, h-1)
-	drawtext(x+4, y+3, "Menu:")
-	j = 1
-	if menuActive = 1
-		drawtext(x+36,y+(j-1)*8+3,"set",INVERS)
-		j += 1
-		drawtext(x+36,y+(j-1)*8+3,"reload",0)
-	else
-		drawtext(x+36,y+(j-1)*8+3,"set",0)
-		j += 1
-		drawtext(x+36,y+(j-1)*8+3,"reload",INVERS)
-	end 
-return
-
-incMenu:
-	menuActive = menuActive + 1
-	if menuActive > 2 
-		menuActive = 1
-	elseif menuActive < 1 then
-		menuActive = 1
-	end
-return
-
-decMenu:
-	menuActive = menuActive - 1
-	if menuActive > 2 
-		menuActive = 1
-	elseif menuActive < 1 then
-		menuActive = 1
-	end
-return
-
-check_values:
-	j = 1
-	c = 1
-	v_flag = 0
-	while j <= packet_size
-		if values_vtx[j] = 0
-			c += 1
-		end
-		j += 1
-	end
-	rem --if all values are zero
-	if c  >=  packet_size
-		v_flag = 0
-	else
-		v_flag = 1
-	end
-return
-
-saveSettings:
-	rem --write commands
-	gosub convertVtxValuesSend
-	gosub check_values
-	if v_flag
-		cmnd = write
-		p_size = packet_size
-		j = 1
-		while j <= packet_size
-			gosub setFreqFromBandChan
-			payloadReq[j] = values_vtx_send[j]
-			j = j+1
-		end
-		gosub mspSendRequest
-		saveTS = gettime()
-		if gState = PAGE_SAVING 
-			saveRetries = saveRetries + 1
+		
+		j = 7
+		gosub selectone
+		if values_vtx[j]
+			drawtext(100, 34, "ON", text_options)
 		else
-			gState = PAGE_SAVING
+			drawtext(100, 34, "OFF", text_options)
 		end
 	end
 return
 
-invalidatePages:
-	j = 1
-	while j < 32
-		values_vtx[j] = 0
-		j += 1
-	end
-	gState = PAGE_DISPLAY
-	saveTS = 0
-return
-
-drawTestScreen:
-	rem ---here you can add any variable that you want to be displayed on the screen 
-	rem ---for debugging purposes
-
-	rem drawnumber(40, 11, values_vtx[1], 0)
-	drawnumber(40, 11, values_vtx_send[1], 0)
-
-	rem drawnumber(40, 21, values_vtx[2], 0)
-	drawnumber(40, 21, values_vtx_send[2], 0)
-
-	rem drawnumber(40, 31, values_vtx[3], 0)
-	drawnumber(40, 31, values_vtx_send[3], 0)
-
-	rem drawnumber(40, 41, values_vtx[4], 0)
-	drawnumber(40, 41, values_vtx_send[4], 0)
-
-	rem drawnumber(100, 11, values_vtx[5], 0)
-
-	rem drawnumber(100, 21, values_vtx[6], 0)
-
-return
 
 run:
 	now = gettime()
-
-	if lastRunTS + 50 < now
-		gosub SetupPages
-		gosub invalidatePages
-	end
-	lastRunTS = now
-
 	if (gState = PAGE_SAVING) & (saveTS + 150 < now)
 		if saveRetries < 2 
 			gosub SetupPages
@@ -870,31 +1003,23 @@ run:
 	rem  -- navigation
 
 	if Event = EVT_MENU_LONG
-		menuActive = 1
-		gState = MENU_DISP
-		rem -- menu is currently displayed 
+		if gState # MENU_DISP
+			gState = MENU_DISP
+			killevents(Event)
+		end
 	elseif gState = MENU_DISP
 		if Event = EVT_EXIT_BREAK
 			gState = PAGE_DISPLAY
-		elseif Event = EVT_UP_BREAK
-			gosub incMenu
-		elseif Event = EVT_DOWN_BREAK
-			gosub decMenu
-		elseif Event = EVT_RIGHT_FIRST
-			gState = PAGE_DISPLAY
-			if menuActive = 1
-				gosub  saveSettings
-			else
-				gosub invalidatePages
-			end
 		end
-		rem   -- normal page viewing
 	elseif gState <= PAGE_DISPLAY
-		if Event = EVT_UP_BREAK
+		if  Event = EVT_MENU_BREAK 
+			gosub incPage
+		elseif Event = EVT_UP_FIRST
 			gosub decLine
-		elseif Event = EVT_DOWN_BREAK	 
+		elseif Event = EVT_DOWN_FIRST	 
 			gosub incLine
 		elseif Event = EVT_RIGHT_FIRST 
+			page = currentPage
 			gosub SetupPages
 			gosub check_values
 			if v_flag
@@ -905,13 +1030,14 @@ run:
 	elseif gState = EDITING
 		if Event = EVT_EXIT_BREAK
 			gState = PAGE_DISPLAY
-		elseif Event = EVT_UP_BREAK
+		elseif Event = EVT_UP_FIRST
 			gosub incValue 
-		elseif Event = EVT_DOWN_BREAK
+		elseif Event = EVT_DOWN_FIRST
 			gosub decValue 
 		end
-		end
+	end
 
+	page = currentPage
 	gosub SetupPages
 	gosub check_values 
 
@@ -920,17 +1046,29 @@ run:
 	end
 
 	drawclear()
-	rem gosub drawScreen
 	if getvalue("RSSI") = 0 
 		drawtext(30, 55, "No Telemetry", BLINK)
 		gosub invalidatePages
 	end
 
 	if gState = MENU_DISP
-		gosub  drawMenu
+		gosub drawScreen
+		popresult = popup("set\0reload\0reboot", 0b111, 8)
+		Event = 0
+		if popresult # 0
+			gState = PAGE_DISPLAY
+		end
+		if popresult = 1
+			gosub saveSettings
+		elseif popresult = 2
+			gosub invalidatePages
+		elseif popresult = 3
+			gosub rebootFC
+		end
 	elseif gState = PAGE_SAVING
 		drawrectangle(12,12,104,30)
 		drawtext(16,22,"Saving...",DBLSIZE + BLINK)
+		rem alert("Saving", 1)
 	elseif gState = PAGE_DISPLAY
 		gosub drawScreen
 	elseif  gState = EDITING
@@ -942,7 +1080,9 @@ run:
 	if Event = EVT_EXIT_BREAK
 		gState = PAGE_DISPLAY
 	elseif Event = EVT_LEFT_FIRST
-		gState = TEST
+		if DEBUG_MODE
+			gState = TEST
+		end
 	end
 
 	gosub mspPollReply
